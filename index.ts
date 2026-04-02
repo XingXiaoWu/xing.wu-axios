@@ -1,227 +1,475 @@
-import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
-import QS from 'qs';
+import axios, { AxiosHeaders } from 'axios';
+import type {
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
+  AxiosStatic,
+  CreateAxiosDefaults,
+} from 'axios';
 
-// 这里有两种类型可能作为入参数
-declare interface ResponseX<T = any> {
-	success: boolean;
-	code: string;
-	message: string;
-	data?: T;
+const DEFAULT_ERROR_MESSAGE = 'Request failed. Please try again later.';
+const NOT_FOUND_ERROR_MESSAGE = 'Request URL not found.';
+const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded;charset=UTF-8';
+
+type MaybePromise<T> = T | Promise<T>;
+type FormPayload = string | URLSearchParams;
+
+export interface ExtendedAxiosRequestConfig<D = any> extends AxiosRequestConfig<D> {
+  skipDefaultErrorHandler?: boolean;
 }
 
-// 默认配置
-let defaults = {
-	baseURL: process.env.VUE_APP_BASE_API || '',
-	withCredentials: true,
-	timeout: 50000
+export interface DefaultErrorHandlerContext {
+  instance: AxiosInstance;
+  config?: ExtendedAxiosRequestConfig;
+  response?: AxiosResponse;
 }
 
-// 此处不可使用解构，否则返回的不是axios.defaults实例，而是单独的对象
-// axios.defaults = {
-// 	...axios.defaults,
-// 	...defaults,
-// }
-// 写入配置
-axios.defaults = Object.assign(axios.defaults, defaults)
+export type DefaultErrorHandler = (
+  error: unknown,
+  context: DefaultErrorHandlerContext,
+) => MaybePromise<void>;
 
-// 请求拦截器，后添加的先执行，先添加的后执行
-const xingwuDefaultInterceptorsRequest = axios.interceptors.request.use(
-	(config: AxiosRequestConfig): AxiosRequestConfig => {
-		// 写入默认需求
-		return config;
-	},
-	(error: Error): Promise<never> => {
-		// 出错
-		return Promise.reject(error);
-	}
-)
-
-// 响应拦截器，先添加的先执行，后添加的后执行
-const xingwuDefaultInterceptorsResponse = axios.interceptors.response.use(
-	(response: AxiosResponse<ResponseX>): AxiosResponse<ResponseX> => {
-		return response
-	},
-	(error: any): Promise<never> | {} => {
-		// 判断是否前端请求就直接挂掉了，没到后台
-		if (!error.response) {
-			return Promise.reject(error)
-		}
-		// code 不为200出错
-		// 有几种情况是不需要外抛的,直接此处处理
-		const { status } = error.response
-		// 401
-		// if (status === 401) {
-		// 	//   如果是web端，则跳转
-		// 	if (process.env.VUE_APP_PLATFORM === 'PCWEB') {
-		// 		window.location.href = `/login/?service=${encodeURIComponent(window.location.href)}`
-		// 	}else if (process.env.VUE_APP_PLATFORM === 'h5') {
-		// 		window.location.href = 
-		// 			`${window.location.origin}/login/?service=${encodeURIComponent(
-		// 			  `${window.location.href}`,
-		// 			)}`
-		// 	}
-		// 	// 如果是小程序，还有其他操作要做
-		// 	// return {}
-		// }
-		// // 403
-		// if (status === 403) {
-		// 	// 如果是pcweb或者h5
-		// 	if (process.env.VUE_APP_PLATFORM === 'PCWEB' || process.env.VUE_APP_PLATFORM === 'h5') {
-		// 		window.location.href = '/noAuth' // 无权限页面路由地址
-		// 	}
-		// 	// 如果是小程序，还有其他操作要做
-		// 	// return {}
-		// }
-		// 以下兼容某些后端团队，设置http status不正确，并返回response
-		const errorMsg = error?.response?.data?.message || error?.response?.data?.msg || '服务端请求出错，请稍后重试！'
-		const notFindMsg = error?.response?.data?.message || '请求地址错误！'
-		if (status === 404) {
-			error.message = notFindMsg
-		} else {
-			error.message = errorMsg
-		}
-		return Promise.reject(error);
-	}
-)
-// 设置统一错误处理
-let errorHandle: Function | null = null;
-const setErrorHandle = (handle: Function): void => {
-	errorHandle = handle;
+export interface ExtendedAxiosOptions {
+  errorHandler?: DefaultErrorHandler | null;
 }
 
-// 如果不需要默认拦截器，可以移除
-const removeDefaultInterceptors = () => {
-	axios.interceptors.request.eject(xingwuDefaultInterceptorsRequest);
-	axios.interceptors.response.eject(xingwuDefaultInterceptorsResponse);
+export interface ExtendedAxiosRequestMethods {
+  POSTJSON<T = any, D = any>(
+    url: string,
+    data?: D,
+    config?: ExtendedAxiosRequestConfig<D>,
+  ): Promise<T>;
+  POSTFORM<T = any, D = any>(
+    url: string,
+    data?: D,
+    config?: ExtendedAxiosRequestConfig<FormPayload>,
+  ): Promise<T>;
+  GET<T = any, P = any>(
+    url: string,
+    params?: P,
+    config?: ExtendedAxiosRequestConfig,
+  ): Promise<T>;
+  PUT<T = any, D = any>(
+    url: string,
+    data?: D,
+    config?: ExtendedAxiosRequestConfig<D>,
+  ): Promise<T>;
+  DELETE<T = any, P = any>(
+    url: string,
+    params?: P,
+    config?: ExtendedAxiosRequestConfig,
+  ): Promise<T>;
+  PATCH<T = any, D = any>(
+    url: string,
+    data?: D,
+    config?: ExtendedAxiosRequestConfig<D>,
+  ): Promise<T>;
+  DOWNLOAD<T = any, P = any>(
+    url: string,
+    params?: P,
+    config?: ExtendedAxiosRequestConfig,
+  ): Promise<AxiosResponse<T>>;
+  DOWNLOADPOST<T = any, D = any>(
+    url: string,
+    data?: D,
+    config?: ExtendedAxiosRequestConfig<D>,
+  ): Promise<AxiosResponse<T>>;
 }
 
-
-// 相关请求封装9
-const GET = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	// 注意先解构config，避免params被覆盖
-	// 添加noche时间戳，避免IE缓存get请求
-	try {
-		const response = await axios
-			.get(url, {
-				...config,
-				params: {
-					...params,
-					noche: new Date().getTime()
-				}
-			});
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
-}
-const POSTJSON = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	try {
-		const response = await axios.post(url, params, config);
-		if (response.config.responseType === 'blob') {
-			return Promise.resolve(response.data?.data ?? response.data);
-		}
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+export interface ExtendedAxiosControlMethods {
+  setDefaultErrorHandler(handler?: DefaultErrorHandler | null): this;
+  setErrorHandle(handler?: DefaultErrorHandler | null): this;
+  getDefaultErrorHandler(): DefaultErrorHandler | undefined;
+  removeDefaultInterceptors(): this;
 }
 
-const POSTFORM = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	// 这里的header设置可能存在被覆盖的风险
-	try {
-		const response = await axios.post(url, QS.stringify(params), {
-			headers: {
-				"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-			},
-			...config
-		});
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+export interface ExtendedAxiosInstance
+  extends AxiosInstance,
+    ExtendedAxiosRequestMethods,
+    ExtendedAxiosControlMethods {}
+
+export interface ExtendedAxiosStatic
+  extends AxiosStatic,
+    ExtendedAxiosRequestMethods,
+    ExtendedAxiosControlMethods {
+  create(
+    config?: CreateAxiosDefaults,
+    options?: ExtendedAxiosOptions,
+  ): ExtendedAxiosInstance;
 }
 
-const PUT = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	try {
-		const response = await axios.put(url, params, config);
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+interface InstanceState {
+  errorHandler?: DefaultErrorHandler;
+  requestInterceptorId?: number;
+  responseInterceptorId?: number;
 }
 
-const DELETE = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	try {
-		const response = await axios.delete(url, {
-			...config,
-			params: params
-		});
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+const instanceStateMap = new WeakMap<AxiosInstance, InstanceState>();
+
+function getState(instance: AxiosInstance): InstanceState {
+  const currentState = instanceStateMap.get(instance);
+
+  if (currentState) {
+    return currentState;
+  }
+
+  const nextState: InstanceState = {};
+  instanceStateMap.set(instance, nextState);
+  return nextState;
 }
 
-const PATCH = async <T = any>(url: string, params: any, config: AxiosRequestConfig = {}): Promise<T> => {
-	try {
-		const response = await axios.patch(url, params, config);
-		return Promise.resolve(response.data?.data ?? response.data);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-// 下载
-const DOWNLOAD = async <T = any>(url: string, params: any, config: AxiosRequestConfig = { responseType: 'blob' }): Promise<T> => {
-	// 注意先解构config，避免params被覆盖
-	try {
-		const response = await axios
-			.get(url, { ...config, params: params });
-		// TODO: 修正类型
-		return Promise.resolve(response as any);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+function getResponseMessage(data: unknown): string | undefined {
+  if (!isRecord(data)) {
+    return undefined;
+  }
+
+  const message = data.message;
+  if (typeof message === 'string' && message.trim()) {
+    return message;
+  }
+
+  const msg = data.msg;
+  if (typeof msg === 'string' && msg.trim()) {
+    return msg;
+  }
+
+  return undefined;
 }
 
-const DOWNLOADPOST = async <T = any>(url: string, params: any, config: AxiosRequestConfig = { responseType: 'blob' }): Promise<T> => {
-	// 注意先解构config，避免params被覆盖
-	try {
-		const response = await axios.post(url, params, config);
-		// TODO: 修正类型
-		return Promise.resolve(response as any);
-	} catch (error) {
-		if (errorHandle)
-			errorHandle(error);
-		return Promise.reject(error);
-	}
+function normalizeError(error: unknown): unknown {
+  if (!axios.isAxiosError(error)) {
+    if (error instanceof Error && !error.message) {
+      error.message = DEFAULT_ERROR_MESSAGE;
+    }
+
+    return error;
+  }
+
+  const fallbackMessage = error.message || DEFAULT_ERROR_MESSAGE;
+  const responseMessage = getResponseMessage(error.response?.data);
+
+  if (!error.response) {
+    error.message = fallbackMessage;
+    return error;
+  }
+
+  if (error.response.status === 404) {
+    error.message = responseMessage || NOT_FOUND_ERROR_MESSAGE;
+    return error;
+  }
+
+  error.message = responseMessage || fallbackMessage || DEFAULT_ERROR_MESSAGE;
+  return error;
 }
 
+function extractConfig(error: unknown): ExtendedAxiosRequestConfig | undefined {
+  if (!axios.isAxiosError(error)) {
+    return undefined;
+  }
 
-export default {
-	...axios,
-	setErrorHandle,
-	removeDefaultInterceptors,
-	POSTJSON,
-	POSTFORM,
-	GET,
-	PUT,
-	DELETE,
-	PATCH,
-	DOWNLOAD,
-	DOWNLOADPOST
+  return error.config as ExtendedAxiosRequestConfig | undefined;
 }
+
+async function runDefaultErrorHandler(instance: AxiosInstance, error: unknown): Promise<unknown> {
+  const normalizedError = normalizeError(error);
+  const state = getState(instance);
+  const handler = state.errorHandler;
+  const config = extractConfig(normalizedError);
+
+  if (!handler || config?.skipDefaultErrorHandler) {
+    return normalizedError;
+  }
+
+  try {
+    await handler(normalizedError, {
+      instance,
+      config,
+      response: axios.isAxiosError(normalizedError) ? normalizedError.response : undefined,
+    });
+  } catch {
+    return normalizedError;
+  }
+
+  return normalizedError;
+}
+
+function ensureDefaultInterceptors(instance: AxiosInstance): void {
+  const state = getState(instance);
+
+  if (state.requestInterceptorId !== undefined || state.responseInterceptorId !== undefined) {
+    return;
+  }
+
+  state.requestInterceptorId = instance.interceptors.request.use(
+    (config) => config,
+    async (error) => Promise.reject(await runDefaultErrorHandler(instance, error)),
+  );
+
+  state.responseInterceptorId = instance.interceptors.response.use(
+    (response) => response,
+    async (error) => Promise.reject(await runDefaultErrorHandler(instance, error)),
+  );
+}
+
+function removeDefaultInterceptors(instance: AxiosInstance): void {
+  const state = getState(instance);
+
+  if (state.requestInterceptorId !== undefined) {
+    instance.interceptors.request.eject(state.requestInterceptorId);
+    state.requestInterceptorId = undefined;
+  }
+
+  if (state.responseInterceptorId !== undefined) {
+    instance.interceptors.response.eject(state.responseInterceptorId);
+    state.responseInterceptorId = undefined;
+  }
+}
+
+function setErrorHandler(
+  instance: AxiosInstance,
+  handler?: DefaultErrorHandler | null,
+): void {
+  getState(instance).errorHandler = handler ?? undefined;
+}
+
+function getDefaultDownloadResponseType(): NonNullable<AxiosRequestConfig['responseType']> {
+  return typeof window === 'undefined' ? 'arraybuffer' : 'blob';
+}
+
+function getResponseData<T>(response: AxiosResponse): T {
+  const responseData = response.data as T & { data?: T };
+  return responseData?.data ?? (response.data as T);
+}
+
+function appendUrlEncodedValue(params: URLSearchParams, key: string, value: unknown): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      appendUrlEncodedValue(params, `${key}[${index}]`, item);
+    });
+    return;
+  }
+
+  if (value instanceof Date) {
+    params.append(key, value.toISOString());
+    return;
+  }
+
+  if (isRecord(value)) {
+    Object.entries(value).forEach(([childKey, childValue]) => {
+      appendUrlEncodedValue(params, `${key}[${childKey}]`, childValue);
+    });
+    return;
+  }
+
+  params.append(key, String(value));
+}
+
+function toUrlEncodedPayload(data: unknown): FormPayload | undefined {
+  if (data === undefined || data === null) {
+    return undefined;
+  }
+
+  if (typeof data === 'string' || data instanceof URLSearchParams) {
+    return data;
+  }
+
+  if (!isRecord(data) && !Array.isArray(data)) {
+    return String(data);
+  }
+
+  const params = new URLSearchParams();
+
+  if (Array.isArray(data)) {
+    data.forEach((item, index) => {
+      appendUrlEncodedValue(params, String(index), item);
+    });
+    return params;
+  }
+
+  Object.entries(data).forEach(([key, value]) => {
+    appendUrlEncodedValue(params, key, value);
+  });
+
+  return params;
+}
+
+function buildFormConfig(
+  config?: ExtendedAxiosRequestConfig<FormPayload>,
+): ExtendedAxiosRequestConfig<FormPayload> {
+  const headers = AxiosHeaders.from(config?.headers as any);
+
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', FORM_CONTENT_TYPE);
+  }
+
+  return {
+    ...config,
+    headers,
+  };
+}
+
+function buildDownloadConfig<D = any>(
+  config?: ExtendedAxiosRequestConfig<D>,
+): ExtendedAxiosRequestConfig<D> {
+  return {
+    ...config,
+    responseType: config?.responseType ?? getDefaultDownloadResponseType(),
+  };
+}
+
+function createExtendedRequestMethods(instance: AxiosInstance): ExtendedAxiosRequestMethods {
+  return {
+    async POSTJSON<T = any, D = any>(
+      url: string,
+      data?: D,
+      config?: ExtendedAxiosRequestConfig<D>,
+    ): Promise<T> {
+      const response = await instance.post(url, data, config);
+      return getResponseData<T>(response);
+    },
+
+    async POSTFORM<T = any, D = any>(
+      url: string,
+      data?: D,
+      config?: ExtendedAxiosRequestConfig<FormPayload>,
+    ): Promise<T> {
+      const response = await instance.post(
+        url,
+        toUrlEncodedPayload(data),
+        buildFormConfig(config),
+      );
+      return getResponseData<T>(response);
+    },
+
+    async GET<T = any, P = any>(
+      url: string,
+      params?: P,
+      config?: ExtendedAxiosRequestConfig,
+    ): Promise<T> {
+      const response = await instance.get(url, {
+        ...config,
+        params,
+      });
+      return getResponseData<T>(response);
+    },
+
+    async PUT<T = any, D = any>(
+      url: string,
+      data?: D,
+      config?: ExtendedAxiosRequestConfig<D>,
+    ): Promise<T> {
+      const response = await instance.put(url, data, config);
+      return getResponseData<T>(response);
+    },
+
+    async DELETE<T = any, P = any>(
+      url: string,
+      params?: P,
+      config?: ExtendedAxiosRequestConfig,
+    ): Promise<T> {
+      const response = await instance.delete(url, {
+        ...config,
+        params,
+      });
+      return getResponseData<T>(response);
+    },
+
+    async PATCH<T = any, D = any>(
+      url: string,
+      data?: D,
+      config?: ExtendedAxiosRequestConfig<D>,
+    ): Promise<T> {
+      const response = await instance.patch(url, data, config);
+      return getResponseData<T>(response);
+    },
+
+    async DOWNLOAD<T = any, P = any>(
+      url: string,
+      params?: P,
+      config?: ExtendedAxiosRequestConfig,
+    ): Promise<AxiosResponse<T>> {
+      return instance.get<T>(url, {
+        ...buildDownloadConfig(config),
+        params,
+      });
+    },
+
+    async DOWNLOADPOST<T = any, D = any>(
+      url: string,
+      data?: D,
+      config?: ExtendedAxiosRequestConfig<D>,
+    ): Promise<AxiosResponse<T>> {
+      return instance.post<T>(url, data, buildDownloadConfig(config));
+    },
+  };
+}
+
+function createExtendedControlMethods(
+  instance: AxiosInstance,
+): ExtendedAxiosControlMethods {
+  return {
+    setDefaultErrorHandler(handler?: DefaultErrorHandler | null) {
+      setErrorHandler(instance, handler);
+      return this;
+    },
+
+    setErrorHandle(handler?: DefaultErrorHandler | null) {
+      setErrorHandler(instance, handler);
+      return this;
+    },
+
+    getDefaultErrorHandler() {
+      return getState(instance).errorHandler;
+    },
+
+    removeDefaultInterceptors() {
+      removeDefaultInterceptors(instance);
+      return this;
+    },
+  };
+}
+
+function enhanceAxiosInstance<T extends AxiosInstance>(
+  instance: T,
+  options?: ExtendedAxiosOptions,
+): T & ExtendedAxiosInstance {
+  ensureDefaultInterceptors(instance);
+
+  if (options?.errorHandler !== undefined) {
+    setErrorHandler(instance, options.errorHandler);
+  }
+
+  Object.assign(instance, createExtendedRequestMethods(instance));
+  Object.assign(instance, createExtendedControlMethods(instance));
+
+  return instance as T & ExtendedAxiosInstance;
+}
+
+const rawCreate = axios.create.bind(axios);
+
+function create(
+  config?: CreateAxiosDefaults,
+  options?: ExtendedAxiosOptions,
+): ExtendedAxiosInstance {
+  const parentErrorHandler = getState(extendedAxios).errorHandler;
+
+  return enhanceAxiosInstance(rawCreate(config), {
+    errorHandler:
+      options?.errorHandler !== undefined ? options.errorHandler : parentErrorHandler,
+  });
+}
+
+const extendedAxios = enhanceAxiosInstance(axios, {});
+extendedAxios.create = create;
+
+export { create };
+export * from 'axios';
+export default extendedAxios as ExtendedAxiosStatic;

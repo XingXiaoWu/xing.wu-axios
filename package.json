@@ -1,30 +1,45 @@
 {
   "name": "@xing.wu/axios",
-  "version": "1.1.0",
-  "description": "无星的网络请求二次封装库",
-  "main": "./lib/index.js",
-  "types": "./lib/index.d.ts",
+  "version": "1.2.0",
+  "description": "An enhanced axios wrapper with shortcut APIs, error handling, and dual web/node builds.",
   "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
   "repository": "https://github.com/XingXiaoWu/xing.wu-axios.git",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "push": "npx tsc && npm publish",
-    "next": "npx tsc && npm publish --tag next"
+    "build": "tsup index.ts --format esm,cjs --dts --clean --out-dir dist --external axios",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build",
+    "push": "pnpm build && pnpm publish"
   },
   "keywords": [
-    "xing.wu",
+    "axios",
+    "wrapper",
+    "http",
     "@xing.wu/axios"
   ],
   "author": "xing.wu<329106954@qq.com>",
   "license": "MIT",
   "dependencies": {
-    "axios": "^0.21.1",
-    "qs": "^6.9.6"
+    "axios": "^1.14.0"
   },
   "devDependencies": {
-    "@types/node": "^16.4.4",
-    "@types/qs": "^6.9.7",
-    "typescript": "^4.3.5"
+    "typescript": "^5.8.3",
+    "tsup": "^8.5.0"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"

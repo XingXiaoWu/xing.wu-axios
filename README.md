@@ -1,234 +1,146 @@
-# 项目使用
+# @xing.wu/axios
 
-## 1.集成
-```
-npm install @xing.wu/axios
-```
-## 2.使用
+基于 `axios@1.14.0` 的增强封装。
 
-### 2.1 内置方法
+特点：
 
-包含方法如下：
+- `axios` 作为本库正式依赖，使用方只需要安装本库。
+- 默认导出保留 `axios` 原生 API，包含 `axios(...)`、`get/post`、`interceptors`、`create` 等。
+- 额外挂载 `POSTJSON`、`POSTFORM`、`GET`、`PUT`、`DELETE`、`PATCH`、`DOWNLOAD`、`DOWNLOADPOST`。
+- `create()` 返回的实例同样具备这些增强方法。
+- 内置默认错误标准化处理，并支持外部注入统一错误处理函数。
+- 打包同时输出 ESM、CJS、类型声明，适用于 Node 和 Web bundler。
 
-请求方法：
+## 安装
+
 ```bash
-  # json类型的POST请求
-	POSTJSON,
-  # form类型的POST请求
-	POSTFORM,
-  # GET请求
-	GET,
-  # PUT请求
-	PUT,
-  # DELETE类型请求
-	DELETE,
-  # PATCH类型请求
-	PATCH,
-  # GET类型的下载请求
-	DOWNLOAD,
-  # POST类型的下载请求
-	DOWNLOADPOST
+pnpm add @xing.wu/axios
 ```
 
-移除内置拦截器
+## 基本使用
+
+```ts
+import request from '@xing.wu/axios';
+
+const user = await request.GET<{ id: string; name: string }>('/api/user', {
+  id: '1',
+});
+
+const saved = await request.POSTJSON('/api/user', {
+  name: 'Xing',
+});
 ```
-	removeDefaultInterceptors,
+
+## 保留 axios 原生能力
+
+```ts
+import request from '@xing.wu/axios';
+
+const response = await request.get('/api/user');
+
+const client = request.create({
+  baseURL: 'https://example.com',
+  timeout: 5000,
+});
+
+await client.POSTFORM('/login', {
+  username: 'demo',
+  password: '123456',
+});
 ```
 
-设置默认错误处理
+## 默认错误处理
+
+本库默认会做两件事：
+
+1. 标准化 `AxiosError.message`，优先读取后端返回的 `message` 或 `msg`。
+2. 如果外部注册了默认错误处理器，则在请求失败时调用。
+
+### 给默认实例注册错误处理器
+
+```ts
+import request from '@xing.wu/axios';
+
+request.setDefaultErrorHandler((error) => {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  console.error(message);
+});
 ```
-  setErrorHandle
-```
-### 2.2 兜底错误处理
 
-框架内已经封装，此处列一下代码
+### 给 create 出来的实例单独注册
 
-```js
-import axios from '@xing.wu/axios'
-// 可替换为任意UI框架提示
-import { Message } from 'element-ui'
+```ts
+import request from '@xing.wu/axios';
 
-// 移除默认拦截器
-// axios.removeDefaultInterceptors()
-// 兜底处理
-const errorHandle = (error) => {
-  // 处理错误,尝试获取error的message展示
-  const { message } = error
-  Message.error(message)
-}
-axios.setErrorHandle(errorHandle)
-
-// 业务自定义拦截器，先执行
-axios.interceptors.request.use((config) => config)
-
-// 后执行
-axios.interceptors.response.use(
-  (response) => {
-    // 判断是否为blob类型
-    if (response.config.responseType === 'blob') {
-      return response
-    }
-    // 添加自己业务的格式判定业务成功
-    if (response.data.success || response.data.success === undefined) {
-      return response
-    }
-    //   不是blob，且success不为true，意味着业务出错
-    const error = new Error(response.data.msg || '')
-    error.response = response.data || {}
-    return Promise.reject(error)
+const client = request.create(
+  { baseURL: 'https://example.com' },
+  {
+    errorHandler(error) {
+      console.error('client error:', error);
+    },
   },
-  (error) => Promise.reject(error),
-)
-
-export default axios
-
+);
 ```
 
-### 2.4 统一前缀的使用
+### 关闭默认拦截器
 
-如具有统一前缀，可配置在环境变量`VUE_APP_BASE_API`中配置
+```ts
+import request from '@xing.wu/axios';
 
-### 2.3 网络请求的使用
-```js
-import axios from '../request'
-
-export default {
-  example1: (params) => axios.POSTJSON('/xxx/xxx/xxx', params),
-  example2: (params) => axios.GET('/xxx/xxx/xxx', params),
-  example3: (params) => axios.POSTFORM('/xxx/xxx/xxx', params),
-  example4: (params) => axios.DOWNLOAD('/xxx/xxx/xxx', params),
-  example5: (params) => axios.DOWNLOADPOST('/xxx/xxx/xxx', params),
-}
-
-```
-### 2.4 返回信息
-
-目前后端定义的格式为
-```js
-{
-  status:0,
-  message: '',
-  data:{},
-  success:true,
-}
-```
-当后端接口符合上述格式时，会先判断`success`是否存在，且是否为true
-
-1. `success`存在，且为`true`返回data
-
-例如：
-```js
-// 假设请求返回内容为
-// {
-//   status:0,
-//   message: '',
-//   data:{a:123},
-//   success:true,
-// }
-example1({}).then(response => {
-  // 打印结果{a:123}
-  console.log(response)
-})
+request.removeDefaultInterceptors();
 ```
 
-2. `success`存在，且为`false`，走catch
+### 单次请求跳过默认错误处理器
 
-例如：
-```js
-// 假设请求返回内容为
-// {
-//   status:0,
-//   message: '',
-//   data:{a:123},
-//   success:false,
-// }
-example1({}).then(response => {
-  
-}).catch(error => {
-  console.log('走到这里')
-})
+```ts
+import request from '@xing.wu/axios';
+
+await request.GET('/api/user', { id: '1' }, { skipDefaultErrorHandler: true });
 ```
 
-3. `success`不存在，为`undefined`，则直接返回`response`本身（兼容旧接口）
-例如：
-```js
-// 假设请求返回内容为
-// {
-//   status:0,
-//   message: '',
-//   data:{a:123},
-// }
-example1({}).then(response => {
-  // 打印结果
-  // {
-  //   status:0,
-  //   message: '',
-  //   data:{a:123},
-  // }
-  console.log(response)
-})
-```
-### 2.5 错误处理
-1. 常见的错误场景，只需要一个弹窗提示即可
+## 增强方法说明
 
-此类错误处理已经作为兜底处理，见上方2.2兜底错误处理
+### `POSTJSON`
 
-此类接口，无需写`catch`操作
+`POSTJSON(url, data, config)`，返回 `response.data?.data ?? response.data`
 
-例如：
-```js
-example1({}).then(response => {
-  // 业务操作省略
-})
-```
-假设此接口报错，框架已处理，会有一个弹窗提示
+### `POSTFORM`
 
-2. 需单独处理错误业务
+`POSTFORM(url, data, config)`，按 `application/x-www-form-urlencoded` 提交，返回 `response.data?.data ?? response.data`
 
-假设某个接口如果业务报错，需要根据不同的错误码进行不同提示，且不需要弹窗提示
+### `GET`
 
-例如：
-```js
-import { Message } from 'element-ui';
+`GET(url, params, config)`，返回 `response.data?.data ?? response.data`
 
-example1({}).then(response => {
-  // 业务操作省略
-}).catch(error => {
-  // 移除弹窗提示
-  Message.closeAll()
-  // 获取后台返回的完整错误内容
-  const { status } = error?.response
-  if (status === 'xxx'){
-    // 
-  } else {
-    // 
-  }
-})
-```
+### `PUT`
 
-只要前端请求发出去了，不管是请求失败，还是业务失败，`catch`中的`error`都会具有`response`属性
+`PUT(url, data, config)`，返回 `response.data?.data ?? response.data`
 
-业务失败的情况下，`response`为后台返回的整个对象
-# 提示：如果前端请求没发出去，`error`上不会存在`response`属性
+### `DELETE`
 
-### 2.6 下载导出类需求
-`GET`下载请求,使用`DOWNLOAD`
+`DELETE(url, params, config)`，返回 `response.data?.data ?? response.data`
 
-`POST`下载请求,使用`DOWNLOADPOST`
+### `PATCH`
 
-返回值为二进制流
+`PATCH(url, data, config)`，返回 `response.data?.data ?? response.data`
 
+### `DOWNLOAD`
 
-# 项目维护
+`DOWNLOAD(url, params, config)`，默认浏览器下使用 `blob`，Node 下使用 `arraybuffer`，返回完整 `AxiosResponse`
 
-## 1.使用pnpm
-```
+### `DOWNLOADPOST`
+
+`DOWNLOADPOST(url, data, config)`，默认浏览器下使用 `blob`，Node 下使用 `arraybuffer`，返回完整 `AxiosResponse`
+
+## 构建
+
+```bash
 pnpm install
+pnpm build
 ```
-## 2.编译上传
-修改`package.json`中的版本号
-```zsh
-pnpx tsc
-# 建议使用npm6或者yarn上传，因为如果使用的Verdaccio版本太低，>npm7或者pnpm无法识别readme.md
-pnpm publish
-```
+
+构建后产物位于 `dist/`：
+
+- `dist/index.js`
+- `dist/index.cjs`
+- `dist/index.d.ts`
